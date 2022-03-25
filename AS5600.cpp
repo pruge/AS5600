@@ -1,8 +1,8 @@
-#include "Arduino.h"
 #include "AS5600.h"
+#include "Arduino.h"
 
-AS5600::AS5600() {
-  Wire.begin();
+AS5600::AS5600(TwoWire* _wire) : Loop() {
+  wire = _wire;
 }
 
 /*
@@ -37,19 +37,38 @@ uint16_t AS5600::getRawAngle() {
  * ----------------------------
  *   returns: the raw angle as a value between 0 and 360 degrees.
  */
-float AS5600::getScaledAngle() {
+float AS5600::getScaledAngle(bool totalAngle) {
   int ang_hi = _getRegister(_RAWANGLEAddressMSB);
   int ang_lo = _getRegister(_RAWANGLEAddressLSB);
-  return ang_hi * 22.5 + ang_lo * 0.087890625;
+  float correctedAngle = ang_hi * 22.5 + ang_lo * 0.087890625 - startAngle;
+  if (correctedAngle < 0) {
+    correctedAngle = correctedAngle + 360;
+  }
+
+  if (totalAngle) {
+    return numberofTurns * 360 + correctedAngle;
+  } else {
+    return correctedAngle;
+  }
+}
+
+/**
+ * 회전 수 기록.
+ *
+ * @return float
+ */
+float AS5600::getNumberOfTurns() {
+  return numberofTurns;
 }
 
 /*
  * Function: getStatus
  * ----------------------------
- *   returns: The the value in the STATUS register. The STATUS register provides bits that indicate the current state of the AS5600.
+ *   returns: The the value in the STATUS register. The STATUS register provides
+ * bits that indicate the current state of the AS5600.
  *
  *   register format: X X MD ML MH X X X
- *            
+ *
  *   MH: AGC minimum gain overflow, magnet too strong
  *   ML: AGC maximum gain overflow, magnet too weak
  *   MD: Magnet was detected
@@ -65,9 +84,11 @@ uint8_t AS5600::getStatus() {
  *   returns: true if magnet is too close to AS5600.
  */
 bool AS5600::isMagnetTooStrong() {
-  uint8_t _b=0;
+  uint8_t _b = 0;
   _b = getStatus();
-  if (_b & (1<<3)) { return true; }
+  if (_b & (1 << 3)) {
+    return true;
+  }
   return false;
 }
 
@@ -77,9 +98,11 @@ bool AS5600::isMagnetTooStrong() {
  *   returns: true if magnet is too far to AS5600.
  */
 bool AS5600::isMagnetTooWeak() {
-  uint8_t _b=0;
+  uint8_t _b = 0;
   _b = getStatus();
-  if (_b & (1<<4)) { return true; }
+  if (_b & (1 << 4)) {
+    return true;
+  }
   return false;
 }
 
@@ -89,9 +112,11 @@ bool AS5600::isMagnetTooWeak() {
  *   returns: true if magnet is detected by AS5600.
  */
 bool AS5600::isMagnetDetected() {
-  uint8_t _b=0;
+  uint8_t _b = 0;
   _b = getStatus();
-  if (_b & (1<<5)) { return true; }
+  if (_b & (1 << 5)) {
+    return true;
+  }
   return false;
 }
 
@@ -99,8 +124,8 @@ bool AS5600::isMagnetDetected() {
  * Function: getGain
  * ----------------------------
  *   returns: the value contained in the Automatic Gain Control (AGC) register.
- *    
- *   In 5V operation, the AGC range is 0-255 
+ *
+ *   In 5V operation, the AGC range is 0-255
  *   In 3.3V operation, the AGC range is 0-128
  */
 uint8_t AS5600::getGain() {
@@ -119,8 +144,9 @@ uint8_t AS5600::getMagnet() {
 /*
  * Function: getMagnitude
  * ----------------------------
- *   returns: the value contained in the MAGNITUDE REGISTER. The MAGNITUDE register indicates the magnitude value of the
- *            internal Coordinate Rotation Digital Computer (CORDIC). 
+ *   returns: the value contained in the MAGNITUDE REGISTER. The MAGNITUDE
+ * register indicates the magnitude value of the internal Coordinate Rotation
+ * Digital Computer (CORDIC).
  */
 uint16_t AS5600::getMagnitude() {
   return _getRegisters2(_MAGNITUDEAddressMSB, _MAGNITUDEAddressLSB);
@@ -129,14 +155,17 @@ uint16_t AS5600::getMagnitude() {
 /*
  * Function: setPowerMode
  * ----------------------------
- *   powerMode: the desired power mode. Valid input values are 0, 1, 2, and 3, corresponding to Normal Mode, Low Power Mode 1, Low Power Mode 2, Low Power Mode 3.
- * 
- *   returns: boolean indicating is value was set. 
+ *   powerMode: the desired power mode. Valid input values are 0, 1, 2, and 3,
+ * corresponding to Normal Mode, Low Power Mode 1, Low Power Mode 2, Low Power
+ * Mode 3.
+ *
+ *   returns: boolean indicating is value was set.
  */
 bool AS5600::setPowerMode(uint8_t powerMode) {
-  if (powerMode != POWER_MODE_NORM && powerMode != POWER_MODE_LPM1 && powerMode != POWER_MODE_LPM2 && powerMode != POWER_MODE_LPM3) {
+  if (powerMode != POWER_MODE_NORM && powerMode != POWER_MODE_LPM1 &&
+      powerMode != POWER_MODE_LPM2 && powerMode != POWER_MODE_LPM3) {
     return false;
-  } 
+  }
 
   uint8_t currentCONFLSB = _getRegister(_CONFAddressLSB);
   uint8_t writeCONFLSB = currentCONFLSB & 0b11111100 | powerMode;
@@ -145,20 +174,21 @@ bool AS5600::setPowerMode(uint8_t powerMode) {
   currentCONFLSB = _getRegister(_CONFAddressLSB);
 
   return currentCONFLSB == writeCONFLSB;
-  
 }
 
 /*
  * Function: setHysteresis
  * ----------------------------
- *   hysteresis: the desired hysteresis. Valid values are 0, 1, 2, and 3, corresponding to OFF, 1 LSB, 2 LSBs, 3 LSBs.
- * 
- *   returns: boolean indicating is value was set. 
+ *   hysteresis: the desired hysteresis. Valid values are 0, 1, 2, and 3,
+ * corresponding to OFF, 1 LSB, 2 LSBs, 3 LSBs.
+ *
+ *   returns: boolean indicating is value was set.
  */
 bool AS5600::setHysteresis(uint8_t hysteresis) {
-  if (hysteresis != HYSTERESIS_OFF && hysteresis != HYSTERESIS_1LSB && hysteresis != HYSTERESIS_2LSB && hysteresis != HYSTERESIS_3LSB) {
+  if (hysteresis != HYSTERESIS_OFF && hysteresis != HYSTERESIS_1LSB &&
+      hysteresis != HYSTERESIS_2LSB && hysteresis != HYSTERESIS_3LSB) {
     return false;
-  } 
+  }
 
   uint8_t currentCONFLSB = _getRegister(_CONFAddressLSB);
   uint8_t writeCONFLSB = currentCONFLSB & 0b11110011 | (hysteresis << 2);
@@ -172,14 +202,16 @@ bool AS5600::setHysteresis(uint8_t hysteresis) {
 /*
  * Function: setOutputStage
  * ----------------------------
- *   outputStage: the desired outputStage. Valid values are 0, 1 and 2 
- * 
- *   returns: boolean indicating is value was set. 
+ *   outputStage: the desired outputStage. Valid values are 0, 1 and 2
+ *
+ *   returns: boolean indicating is value was set.
  */
 bool AS5600::setOutputStage(uint8_t outputStage) {
-  if (outputStage != OUTPUT_STAGE_ANALOG_FULL && outputStage != OUTPUT_STAGE_ANALOG_REDUCED && outputStage != OUTPUT_STAGE_DIGITAL_PWM) {
+  if (outputStage != OUTPUT_STAGE_ANALOG_FULL &&
+      outputStage != OUTPUT_STAGE_ANALOG_REDUCED &&
+      outputStage != OUTPUT_STAGE_DIGITAL_PWM) {
     return false;
-  } 
+  }
 
   uint8_t currentCONFLSB = _getRegister(_CONFAddressLSB);
   uint8_t writeCONFLSB = currentCONFLSB & 0b11001111 | (outputStage << 4);
@@ -193,13 +225,13 @@ bool AS5600::setOutputStage(uint8_t outputStage) {
 /*
  * Function: setPWMFrequency
  * ----------------------------
- *   frequency: the desired PWM frequency for PWM output. Valid values are 115 Hz, 230 Hz, 460 Hz, 920 Hz.
- * 
- *   returns: boolean indicating is value was set. 
+ *   frequency: the desired PWM frequency for PWM output. Valid values are 115
+ * Hz, 230 Hz, 460 Hz, 920 Hz.
+ *
+ *   returns: boolean indicating is value was set.
  */
- 
-bool AS5600::setPWMFrequency(uint8_t frequency) {
 
+bool AS5600::setPWMFrequency(uint8_t frequency) {
   uint8_t currentCONFLSB = _getRegister(_CONFAddressLSB);
   uint8_t writeCONFLSB = currentCONFLSB & 0b00111111 | (frequency << 6);
   _writeRegister(_CONFAddressLSB, writeCONFLSB);
@@ -213,13 +245,14 @@ bool AS5600::setPWMFrequency(uint8_t frequency) {
  * Function: setSlowFilter
  * ----------------------------
  *   outputStage: the desired outputStage. Valid values are 0, 1, 2.
- * 
- *   returns: boolean indicating is value was set. 
+ *
+ *   returns: boolean indicating is value was set.
  */
 bool AS5600::setSlowFilter(uint8_t slowFilter) {
-  if (slowFilter != SLOW_FILTER_16X && slowFilter != SLOW_FILTER_8X && slowFilter != SLOW_FILTER_4X && slowFilter != SLOW_FILTER_2X) {
+  if (slowFilter != SLOW_FILTER_16X && slowFilter != SLOW_FILTER_8X &&
+      slowFilter != SLOW_FILTER_4X && slowFilter != SLOW_FILTER_2X) {
     return false;
-  } 
+  }
 
   uint8_t currentCONFLSB = _getRegister(_CONFAddressLSB);
   uint8_t writeCONFLSB = currentCONFLSB & 0b11111100 | slowFilter;
@@ -231,32 +264,32 @@ bool AS5600::setSlowFilter(uint8_t slowFilter) {
 }
 
 uint8_t AS5600::getCONF() {
-
   return _getRegister(_CONFAddressLSB);
-
 }
 
 /*
  * Function: setFastFilterThreshold
  * ----------------------------
- *   fastFilterThreshold: the desired fastFilterThreshold. Valid values are 0, 1, 2, 3, 4, 5, 6, 7
- * 
- *   returns: boolean indicating is value was set. 
+ *   fastFilterThreshold: the desired fastFilterThreshold. Valid values are 0,
+ * 1, 2, 3, 4, 5, 6, 7
+ *
+ *   returns: boolean indicating is value was set.
  */
 bool AS5600::setFastFilterThreshold(uint8_t fastFilterThreshold) {
-  if (fastFilterThreshold != FAST_FILTER_THRESHOLD_SLOW && 
-      fastFilterThreshold != FAST_FILTER_THRESHOLD_6LSB && 
-      fastFilterThreshold != FAST_FILTER_THRESHOLD_7LSB && 
-      fastFilterThreshold != FAST_FILTER_THRESHOLD_9LSB && 
-      fastFilterThreshold != FAST_FILTER_THRESHOLD_18LSB && 
-      fastFilterThreshold != FAST_FILTER_THRESHOLD_21LSB && 
-      fastFilterThreshold != FAST_FILTER_THRESHOLD_24LSB && 
+  if (fastFilterThreshold != FAST_FILTER_THRESHOLD_SLOW &&
+      fastFilterThreshold != FAST_FILTER_THRESHOLD_6LSB &&
+      fastFilterThreshold != FAST_FILTER_THRESHOLD_7LSB &&
+      fastFilterThreshold != FAST_FILTER_THRESHOLD_9LSB &&
+      fastFilterThreshold != FAST_FILTER_THRESHOLD_18LSB &&
+      fastFilterThreshold != FAST_FILTER_THRESHOLD_21LSB &&
+      fastFilterThreshold != FAST_FILTER_THRESHOLD_24LSB &&
       fastFilterThreshold != FAST_FILTER_THRESHOLD_10LSB) {
     return false;
-  } 
+  }
 
   uint8_t currentCONFLSB = _getRegister(_CONFAddressLSB);
-  uint8_t writeCONFLSB = currentCONFLSB & 0b11100011 | (fastFilterThreshold << 3);
+  uint8_t writeCONFLSB =
+      currentCONFLSB & 0b11100011 | (fastFilterThreshold << 3);
   _writeRegister(_CONFAddressLSB, writeCONFLSB);
 
   currentCONFLSB = _getRegister(_CONFAddressMSB);
@@ -271,17 +304,18 @@ bool AS5600::setFastFilterThreshold(uint8_t fastFilterThreshold) {
  *
  *   returns: the value within a register.
  */
-uint8_t AS5600::_getRegister(byte register1) {  
-  uint8_t _b=0;
+uint8_t AS5600::_getRegister(byte register1) {
+  uint8_t _b = 0;
 
-  Wire.beginTransmission(_AS5600Address);
-  Wire.write(register1);
-  Wire.endTransmission();
+  wire->beginTransmission(_AS5600Address);
+  wire->write(register1);
+  wire->endTransmission();
 
-  Wire.requestFrom(_AS5600Address, 1);
+  wire->requestFrom(_AS5600Address, 1);
 
-  while (Wire.available() == 0) { }
-  _b = Wire.read();
+  while (wire->available() == 0) {
+  }
+  _b = wire->read();
 
   return _b;
 }
@@ -292,17 +326,16 @@ uint8_t AS5600::_getRegister(byte register1) {
  *   registerMSB: register address of Most Significant Byte (MMSB)
  *   registerLSB: register address of Least Significant Byte (MMSB)
  *
- *   returns: the value of the 16 bit number stored in registerMSB and registerLSB.
+ *   returns: the value of the 16 bit number stored in registerMSB and
+ * registerLSB.
  */
 uint16_t AS5600::_getRegisters2(byte registerMSB, byte registerLSB) {
-
-  uint16_t _hi=0, _lo=0;
+  uint16_t _hi = 0, _lo = 0;
 
   _hi = _getRegister(registerMSB);
   _lo = _getRegister(registerLSB);
-  return (_hi<<8) | (_lo);
+  return (_hi << 8) | (_lo);
 }
-
 
 /*
  * Function: _writeRegister
@@ -313,9 +346,69 @@ uint16_t AS5600::_getRegisters2(byte registerMSB, byte registerLSB) {
  *   returns: void
  */
 void AS5600::_writeRegister(byte registerAddress, byte value) {
-  Wire.beginTransmission(_AS5600Address);
-	Wire.write((uint8_t)registerAddress); //module function register address
-	Wire.write((uint8_t)value); //data bytes
-	Wire.endTransmission();
+  wire->beginTransmission(_AS5600Address);
+  wire->write((uint8_t)registerAddress);  // module function register address
+  wire->write((uint8_t)value);            // data bytes
+  wire->endTransmission();
 }
 
+/**
+ * set zero position, 0 angle, 0 rotation
+ *
+ * @return true
+ * @return false
+ */
+void AS5600::setZeroPosition() {
+  startAngle = getScaledAngle() + startAngle;
+  if (startAngle > 360) {
+    startAngle -= 360;
+  }
+  totalAngle = 0;
+  numberofTurns = 0;
+  quadrantNumber = 0;
+  previousquadrantNumber = 0;
+}
+
+void AS5600::loop() {
+  /*
+    //Quadrants:
+    4  |  1
+    ---|---
+    3  |  2
+    */
+
+  float currentAngle = getScaledAngle();
+
+  // Quadrant 1
+  if (currentAngle >= 0 && currentAngle <= 90) {
+    quadrantNumber = 1;
+  }
+
+  // Quadrant 2
+  if (currentAngle > 90 && currentAngle <= 180) {
+    quadrantNumber = 2;
+  }
+
+  // Quadrant 3
+  if (currentAngle > 180 && currentAngle <= 270) {
+    quadrantNumber = 3;
+  }
+
+  // Quadrant 4
+  if (currentAngle > 270 && currentAngle < 360) {
+    quadrantNumber = 4;
+  }
+
+  if (quadrantNumber != previousquadrantNumber)  // if we changed quadrant
+  {
+    if (quadrantNumber == 1 && previousquadrantNumber == 4) {
+      numberofTurns++;  // 4 --> 1 transition: CW rotation
+    }
+
+    if (quadrantNumber == 4 && previousquadrantNumber == 1) {
+      numberofTurns--;  // 1 --> 4 transition: CCW rotation
+    }
+
+    previousquadrantNumber = quadrantNumber;  // update to the current quadrant
+  }
+}
